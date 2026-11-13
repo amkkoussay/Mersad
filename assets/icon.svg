@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Mirsad — Monochrome Mark</title>
+  <rect width="512" height="512" rx="88" fill="#0B101A"/>
+  <g fill="#F4F5F7">
+    <!-- Outer shared-space arch -->
+    <path d="M104 176 256 88 408 176V330L344 368V216L256 165 168 216V368L104 330Z"/>
+    <!-- Inner open record / central pillar -->
+    <path d="M222 224 256 204 290 224V334L256 354 222 334Z"/>
+    <!-- Side panels framing the unresolved center -->
+    <path d="M132 270 192 235V385L132 350Z"/>
+    <path d="M380 270 320 235V385L380 350Z"/>
+  </g>
+</svg>
