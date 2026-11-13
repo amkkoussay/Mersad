@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 104" role="img" aria-label="MIRSAD — مِرصاد">
+  <defs>
+  </defs>
+  <rect width="380" height="104" fill="#0B1220"/>
+  <g transform="translate(10,10) scale(0.164)" fill="#F4F5F7">
+    <path d="M104 176 256 88 408 176V330L344 368V216L256 165 168 216V368L104 330Z"/>
+    <path d="M222 224 256 204 290 224V334L256 354 222 334Z"/>
+    <path d="M132 270 192 235V385L132 350Z"/>
+    <path d="M380 270 320 235V385L380 350Z"/>
+  </g>
+  <text x="112" y="52" font-family="'Segoe UI',system-ui,sans-serif" font-size="31" font-weight="700" letter-spacing="7" fill="#DBE7F5">MIRSAD</text>
+  <text x="114" y="80" font-family="'Segoe UI',system-ui,sans-serif" font-size="12.5" letter-spacing="1.6" fill="#8BA3C2">ONE MEMORY FOR EVERY AI AGENT</text>
+  <text x="368" y="86" text-anchor="end" font-family="'Segoe UI',Tahoma,sans-serif" font-size="21" fill="#E8C268">مِرصاد</text>
+</svg>
