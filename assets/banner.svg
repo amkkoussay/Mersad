@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" role="img" aria-label="MIRSAD — مِرصاد — one memory for every AI agent">
+  <defs>
+    <radialGradient id="sky" cx="72%" cy="18%" r="90%">
+      <stop offset="0%" stop-color="#14264A"/>
+      <stop offset="55%" stop-color="#0E1830"/>
+      <stop offset="100%" stop-color="#0B1220"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="300" fill="url(#sky)"/>
+  <!-- faint constellation field -->
+  <g stroke="#8FC1F0" stroke-width="1" opacity="0.28">
+    <line x1="120" y1="60" x2="215" y2="38"/><line x1="215" y1="38" x2="305" y2="74"/>
+    <line x1="980" y1="52" x2="1060" y2="30"/><line x1="90" y1="238" x2="180" y2="258"/>
+  </g>
+  <g fill="#8FC1F0" opacity="0.5">
+    <circle cx="120" cy="60" r="2.4"/><circle cx="215" cy="38" r="2"/><circle cx="305" cy="74" r="2.4"/>
+    <circle cx="980" cy="52" r="2"/><circle cx="1060" cy="30" r="2.4"/>
+    <circle cx="90" cy="238" r="2"/><circle cx="180" cy="258" r="2.4"/>
+  </g>
+  <g transform="translate(848,26) scale(0.484)" fill="#F4F5F7">
+    <path d="M104 176 256 88 408 176V330L344 368V216L256 165 168 216V368L104 330Z"/>
+    <path d="M222 224 256 204 290 224V334L256 354 222 334Z"/>
+    <path d="M132 270 192 235V385L132 350Z"/>
+    <path d="M380 270 320 235V385L380 350Z"/>
+  </g>
+  <text x="90" y="128" font-family="'Segoe UI',system-ui,sans-serif" font-size="66" font-weight="700" letter-spacing="12" fill="#DBE7F5">MIRSAD</text>
+  <text x="94" y="168" font-family="'Segoe UI',Tahoma,sans-serif" font-size="30" fill="#E8C268">مِرصاد — مرصد ذاكرة وكلائك</text>
+  <text x="94" y="208" font-family="'Segoe UI',system-ui,sans-serif" font-size="21" fill="#8BA3C2">One memory for every AI agent. Local-first · MCP-native · a living graph.</text>
+  <text x="94" y="248" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" letter-spacing="2.5" fill="#8BA3C2" opacity="0.8">FACTS · DECISIONS · CONFLICTS · TIME — ONE SHARED STORE</text>
+</svg>
