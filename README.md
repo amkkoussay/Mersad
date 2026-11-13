@@ -2,6 +2,11 @@
 
 ![MIRSAD — one memory for every AI agent](assets/banner.svg)
 
+![License: MIT](https://img.shields.io/badge/License-MIT-E8C268.svg)
+![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-8FC1F0.svg)
+![Protocol: MCP](https://img.shields.io/badge/Protocol-MCP-DBE7F5.svg)
+![Local-first](https://img.shields.io/badge/Local--first-yes-58D68A.svg)
+
 > **MIRSAD (مِرصاد)** is a shared, living memory hub for AI agents — one local
 > store that Claude, ChatGPT and any MCP client can all read and write.
 > Bi-temporal facts (nothing is ever silently overwritten), decisions stored
@@ -15,6 +20,45 @@
 > graph, decision log, Claude, ChatGPT, SQLite, local-first._
 
 **ذاكرة جماعية واحدة لكل مساعداتك.** خادم ذاكرة مبني على رسم معرفي زمني (Temporal Knowledge Graph) يقرأ منه ويكتب فيه كل مساعداتك وأنت نفسك — عبر بروتوكول MCP نفسه — فلا يضيع قرار اتُّخذ مع مساعدٍ عن بقيّة المساعدين، ولا تُنسى أسبابه وأدلّته ونتائجه.
+
+
+## What is MIRSAD?
+
+MIRSAD is an **open-source shared memory server for AI agents**, built on the
+Model Context Protocol (MCP). Instead of every assistant keeping its own
+private, forgetful memory, MIRSAD gives all of them **one collective memory**
+they can read and write: Claude, ChatGPT, or any MCP client.
+
+### Features
+
+- **Bi-temporal facts** — facts carry validity time and recording time;
+  updates invalidate, never delete, so you can ask "what was true then?"
+- **Decisions as first-class units** — every decision is stored with its
+  reasons, evidence, rejected alternatives, effects and outcomes, and can
+  be traced with a single `why` query.
+- **Cross-agent conflict queue** — when one agent overwrites another's
+  fact, the latest value wins for queries but a conflict is opened for the
+  owner's ruling. Nothing is silently lost.
+- **Live graph viewer** — open the local page and watch the memory as a
+  living network (entities, decisions, values, edges) while agents write;
+  click any node to read its story.
+- **Arabic + English name resolution** — normalization and entity aliases,
+  so a fact stored as "MIRSAD" is found when an agent searches «مِرصاد».
+- **Zero LLM in the write path** — deterministic storage on a single
+  SQLite file; runs anywhere, even on a phone via Termux.
+
+### Quickstart
+
+```bash
+git clone https://github.com/amkkoussay/Mersad.git
+cd Mersad
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+MIRSAD_DB=~/mirsad.db .venv/bin/python -m mirsad.mcp_server
+# MCP endpoint: http://127.0.0.1:8765/mcp  ·  Live graph: http://127.0.0.1:8765/
+```
+
+Then add `http://127.0.0.1:8765/mcp` as a custom MCP connector in your
+assistant of choice, and it shares this memory with every other client.
 
 ## لماذا وُجد؟ (ما وجدناه في مراجعة الأنظمة الكبرى)
 
