@@ -1,0 +1,20 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set up the project venv (same as the README quickstart)
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install "mcp[cli]<2"
+      - run: .venv/bin/python demo.py
+      - run: .venv/bin/python test_graph.py
+      - run: .venv/bin/python test_mcp.py
+        env:
+          NO_PROXY: 127.0.0.1,localhost
+          no_proxy: 127.0.0.1,localhost
