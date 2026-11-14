@@ -198,14 +198,16 @@ class Mirsad:
         parts = re.split(r"[\s؟?.,،:;!«»\"'()]+", cls._norm(topic))
         return sorted({t for t in parts if len(t) >= 2 and t not in cls._STOPWORDS})
 
-    def add_alias(self, entity_name: str, alias: str) -> None:
+    def add_alias(self, entity_name: str, alias: str) -> int:
         self._bump()
         eid = self.entity(entity_name)
         self.db.execute(
             "INSERT OR IGNORE INTO entity_aliases(entity_id, alias) VALUES (?,?)",
             (eid, alias),
         )
+        linked = self._backfill_object_links(eid)
         self.db.commit()
+        return linked
 
     def resolve_subject(self, name: str) -> str | None:
         """Resolve a name as an agent wrote it (any script, diacritics, case)
@@ -230,6 +232,59 @@ class Mirsad:
                 return a["canonical"]
         return None
 
+    def _resolve_entity_id(self, name: str) -> int | None:
+        """Resolve any name (entity name or registered alias, any script or
+        case, Arabic diacritics ignored) to an entity id. None if unknown."""
+        row = self.db.execute(
+            "SELECT id FROM entities WHERE name=?", (name,)
+        ).fetchone()
+        if row:
+            return row["id"]
+        target = self._norm(name)
+        if not target:
+            return None
+        for e in self.db.execute("SELECT id, name FROM entities").fetchall():
+            if self._norm(e["name"]) == target:
+                return e["id"]
+        for a in self.db.execute(
+            "SELECT alias, entity_id FROM entity_aliases"
+        ).fetchall():
+            if self._norm(a["alias"]) == target:
+                return a["entity_id"]
+        return None
+
+    def _backfill_object_links(self, entity_id: int) -> int:
+        """Auto-link: when an entity appears (created or given a new alias),
+        point every still-unlinked current fact whose WHOLE object text is
+        exactly that entity's name or one of its aliases at it. Whole-text
+        equality only — a name merely mentioned inside a sentence never
+        creates an edge, and a fact never links an entity to itself."""
+        row = self.db.execute(
+            "SELECT name FROM entities WHERE id=?", (entity_id,)
+        ).fetchone()
+        if not row:
+            return 0
+        names = {self._norm(row["name"])}
+        for a in self.db.execute(
+            "SELECT alias FROM entity_aliases WHERE entity_id=?", (entity_id,)
+        ).fetchall():
+            names.add(self._norm(a["alias"]))
+        linked = 0
+        for f in self.db.execute(
+            """SELECT id, subject_id, object_text FROM facts
+               WHERE object_id IS NULL AND valid_to IS NULL"""
+        ).fetchall():
+            if f["subject_id"] == entity_id:
+                continue
+            v = self._norm(f["object_text"])
+            if v and len(v) <= 80 and v in names:
+                self.db.execute(
+                    "UPDATE facts SET object_id=? WHERE id=?",
+                    (entity_id, f["id"]),
+                )
+                linked += 1
+        return linked
+
     # ---------- facts (bi-temporal) ----------
 
     def remember_fact(
@@ -252,7 +307,9 @@ class Mirsad:
         valid_from = valid_from if valid_from is not None else _now()
         ep_id = self.add_episode(source_agent, episode or f"{subject} {predicate} {object_text}", source_ref) \
             if (episode or source_ref) else None
-        sid = self.entity(subject, subject_type)
+        resolved = self._resolve_entity_id(subject)
+        subject_created = resolved is None
+        sid = resolved if resolved is not None else self.entity(subject, subject_type)
 
         old = self.db.execute(
             """SELECT * FROM facts WHERE subject_id=? AND predicate=?
@@ -285,23 +342,36 @@ class Mirsad:
                 )
                 conflict_id = cur.lastrowid
 
+        # Auto-link the object: when the value is exactly an existing
+        # entity's name or alias, store the edge (object_id) with the fact.
+        oid = None
+        if isinstance(object_text, str) and len(self._norm(object_text)) <= 80:
+            cand = self._resolve_entity_id(object_text)
+            if cand is not None and cand != sid:
+                oid = cand
+
         cur = self.db.execute(
-            """INSERT INTO facts(subject_id, predicate, object_text, valid_from,
+            """INSERT INTO facts(subject_id, predicate, object_text, object_id, valid_from,
                recorded_at, source_agent, episode_id, confidence)
-               VALUES (?,?,?,?,?,?,?,?)""",
-            (sid, predicate, object_text, valid_from, _now(), source_agent, ep_id, confidence),
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (sid, predicate, object_text, oid, valid_from, _now(), source_agent, ep_id, confidence),
         )
         new_id = cur.lastrowid
         if conflict_id:
             self.db.execute(
                 "UPDATE conflicts SET new_fact_id=? WHERE id=?", (new_id, conflict_id)
             )
+        # A brand-new subject entity joins its natural path: earlier facts
+        # that named it as their object now link to it.
+        backfilled = self._backfill_object_links(sid) if subject_created else 0
         self._index("fact", f"{subject} {predicate}", object_text)
         self.db.commit()
         return {
             "fact_id": new_id,
             "superseded_fact_id": superseded,
             "conflict_opened": conflict_id,
+            "linked_object_id": oid,
+            "backfilled_links": backfilled,
         }
 
     def current_fact(self, subject: str, predicate: str) -> dict | None:
