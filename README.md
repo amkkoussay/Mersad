@@ -6,6 +6,9 @@
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-8FC1F0.svg)
 ![Protocol: MCP](https://img.shields.io/badge/Protocol-MCP-DBE7F5.svg)
 ![Local-first](https://img.shields.io/badge/Local--first-yes-58D68A.svg)
+[![PyPI](https://img.shields.io/pypi/v/mirsad-mcp.svg)](https://pypi.org/project/mirsad-mcp/)
+[![Downloads](https://img.shields.io/pypi/dm/mirsad-mcp.svg)](https://pypi.org/project/mirsad-mcp/)
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.amkkoussay%2Fmersad-DBE7F5.svg)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.amkkoussay/mersad)
 
 > **MIRSAD (مِرصاد)** is a shared, living memory hub for AI agents — one local
 > store that Claude, ChatGPT and any MCP client can all read and write.

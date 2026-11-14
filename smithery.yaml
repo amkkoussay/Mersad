@@ -1,0 +1,21 @@
+# Smithery configuration file — https://smithery.ai
+# MIRSAD runs locally over stdio; the memory database is a local SQLite file.
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      dbPath:
+        type: string
+        description: "Path to the SQLite memory database (optional — default: ~/mirsad.db)"
+  commandFunction: |-
+    (config) => ({
+      command: 'uvx',
+      args: ['mirsad-mcp'],
+      env: {
+        MIRSAD_TRANSPORT: 'stdio',
+        ...(config.dbPath ? { MIRSAD_DB: config.dbPath } : {})
+      }
+    })
+  exampleConfig:
+    dbPath: ""
