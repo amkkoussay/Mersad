@@ -11,6 +11,11 @@
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.amkkoussay%2Fmersad-DBE7F5.svg)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.amkkoussay/mersad)
 [![Release downloads](https://img.shields.io/github/downloads/amkkoussay/Mersad/total?label=release%20downloads)](https://github.com/amkkoussay/Mersad/releases)
 
+<p align="center">
+  <img src="assets/demo.gif" alt="MIRSAD demo — an MCP client storing facts, recording a decision with its reasons, and resolving a cross-agent conflict (fictional demo data)" width="880" />
+</p>
+<p align="center"><sub>Live MCP tool calls against a fictional demo workspace — no real data.</sub></p>
+
 > **MIRSAD (مِرصاد)** is a shared, living memory hub for AI agents — one local
 > store that Claude, ChatGPT and any MCP client can all read and write.
 > Bi-temporal facts (nothing is ever silently overwritten), decisions stored
