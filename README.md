@@ -47,6 +47,13 @@ they can read and write: Claude, ChatGPT, or any MCP client.
 - **Zero LLM in the write path** — deterministic storage on a single
   SQLite file; runs anywhere, even on a phone via Termux.
 
+### Official MCP Registry
+
+mcp-name: io.github.amkkoussay/mersad
+
+Install from PyPI: `pip install mirsad-mcp` — then point your MCP client
+at the `mirsad-mcp` command (stdio, with `MIRSAD_TRANSPORT=stdio`).
+
 ### Quickstart
 
 ```bash
