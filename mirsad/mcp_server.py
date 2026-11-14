@@ -138,6 +138,10 @@ async def graph_json(request: Request) -> JSONResponse:
     return JSONResponse(m.graph_snapshot())
 
 
-if __name__ == "__main__":
+def main() -> None:
     transport = os.environ.get("MIRSAD_TRANSPORT", "streamable-http")
     mcp.run(transport=transport)
+
+
+if __name__ == "__main__":
+    main()
