@@ -17,4 +17,4 @@ jobs:
       - run: .venv/bin/python test_mcp.py
         env:
           NO_PROXY: 127.0.0.1,localhost
-          no_proxy: 127.0.0.1,localhost
+          
