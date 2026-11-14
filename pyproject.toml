@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mirsad-mcp"
+version = "0.2.0"
+description = "A shared, living memory hub for AI agents - bi-temporal facts, first-class decisions, and owner-resolved conflicts, served over MCP. Local-first."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Koussay Mehdouani" }]
+keywords = ["mcp", "model-context-protocol", "ai-agents", "ai-memory", "knowledge-graph", "sqlite"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = ["mcp[cli]<2"]
+
+[project.urls]
+Homepage = "https://github.com/amkkoussay/Mersad"
+Repository = "https://github.com/amkkoussay/Mersad"
+
+[project.scripts]
+mirsad-mcp = "mirsad.mcp_server:main"
+
+[tool.setuptools]
+packages = ["mirsad"]
