@@ -676,12 +676,15 @@ class Mirsad:
                    WHERE {cond} ORDER BY f.recorded_at DESC LIMIT ?""",
                 (*binds, limit),
             ).fetchall()
-        return {
-            "query": query,
+        result = {
+            "query": query[:200],
             "text_hits": [{"kind": h["kind"], "title": h["title"], "body": h["body"]} for h in hits],
             "facts": [self._fact_dict(f) for f in facts],
             "decisions": self.why(query),
         }
+        if len(query) > 200:
+            result["query_truncated"] = True
+        return result
 
     # ---------- Markdown mirror ----------
 
