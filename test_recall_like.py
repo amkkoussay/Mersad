@@ -1,8 +1,15 @@
 """Regression test: recall()/why() must survive long and wildcard-laden
 queries. User text used to be embedded raw into LIKE patterns, so a query
-over SQLite's LIKE pattern limit (50,000 bytes) crashed recall with
+over SQLite's LIKE pattern limit crashed recall with
 "LIKE or GLOB pattern too complex", and % / _ in a query silently acted
 as wildcards instead of literal text.
+
+The limit that matters is Cloudflare D1's: 50 BYTES per pattern (verified
+empirically 2026-11-15: 50 bytes succeeds, 51 raises) — stock SQLite
+allows 50,000, which is why the 0.2.2 fix (a 500-char cap) still crashed
+on D1 for ordinary 50-500 char multi-word queries. The core invariant is
+therefore tested directly: every LIKE pattern the engine builds is
+<= 50 bytes in UTF-8, escapes included.
 
 Run: python3 test_recall_like.py  (exits non-zero on any failure)
 """
@@ -76,6 +83,48 @@ r = m.recall("MIRSAD")
 check('recall("MIRSAD") still finds facts', len(r["facts"]) >= 1)
 r = m.recall("shared memory")
 check("recall still returns matching decisions", len(r["decisions"]) >= 1)
+
+# 7. THE D1 INVARIANT: every pattern _like_pattern builds is <= 50 bytes
+# (D1's SQLITE_MAX_LIKE_PATTERN_LENGTH), whatever the input.
+NASTY = [
+    "MIRSAD 0.2.2 recall LIKE 500 characters escape percent underscore release",
+    "x" * 60000,
+    "ذاكرة مشتركة للمساعدين " * 3000,
+    "%" * 100,
+    "_" * 100,
+    "\\" * 100,
+    "a%b_c\\d" * 40,
+    "كلمة" * 30,
+    "MIRSAD characters escape percent underscore release",
+]
+bad = []
+for q in NASTY:
+    p = Mirsad._like_pattern(q)
+    if p is not None and len(p.encode("utf-8")) > 50:
+        bad.append((q[:30], len(p.encode("utf-8"))))
+check("every LIKE pattern is <= 50 bytes (D1 limit)", not bad, str(bad))
+
+# 8. The exact query an external tester reported failing on the live D1
+# copy on 2026-11-15, AFTER the 0.2.2 fix had shipped.
+try:
+    r = m.recall("MIRSAD 0.2.2 recall LIKE 500 characters escape percent underscore release")
+    check("recall survives the tester's exact 71-char query", isinstance(r, dict))
+except Exception as e:  # noqa: BLE001
+    check("recall survives the tester's exact 71-char query", False, f"{type(e).__name__}: {e}")
+
+# 9. Single tokens around and past D1's 50-byte pattern limit.
+for n in (49, 50, 200):
+    try:
+        r = m.recall("z" * n)
+        check(f"recall survives a {n}-char single token", isinstance(r, dict))
+    except Exception as e:  # noqa: BLE001
+        check(f"recall survives a {n}-char single token", False, f"{type(e).__name__}: {e}")
+
+# 10. version_info reports the running build's identity.
+vi = m.version_info()
+check("version_info returns build identity",
+      bool(vi.get("package_version")) and vi.get("schema_version") == 1
+      and vi.get("runtime") == "local", str(vi))
 
 print()
 if failures:

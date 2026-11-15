@@ -117,6 +117,11 @@ def fmt_ts(ts: float | None) -> str | None:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
 
 
+# Version of the database layout created by SCHEMA above. Bump when the
+# schema changes; reported by version_info so clients can verify builds.
+SCHEMA_VERSION = 1
+
+
 class Mirsad:
     def __init__(self, db_path: str | Path):
         self.db_path = str(db_path)
@@ -199,22 +204,38 @@ class Mirsad:
         return sorted({t for t in parts if len(t) >= 2 and t not in cls._STOPWORDS})
 
     # SQLite refuses LIKE patterns longer than SQLITE_MAX_LIKE_PATTERN_LENGTH
-    # (50,000 bytes by default) with "LIKE or GLOB pattern too complex".
-    # why()/recall() embed user text in LIKE patterns, so one long query used
-    # to crash the whole call. Embedded terms are capped far below any
-    # build's limit; longer inputs are covered by per-token search instead.
-    _LIKE_MAX = 500
+    # with "LIKE or GLOB pattern too complex". Stock SQLite allows 50,000
+    # bytes, but Cloudflare D1's limit is 50 BYTES — verified empirically
+    # 2026-11-15 (a 50-byte pattern succeeds, 51 bytes raises). The 0.2.2
+    # fix capped patterns at 500 chars, which was still 10x over D1's real
+    # limit, so ordinary multi-word queries of 50-500 chars kept crashing
+    # on D1. Every pattern built here is therefore guaranteed <= 50 bytes
+    # in UTF-8, escapes included; longer terms are truncated to a prefix
+    # instead of being dropped, so long inputs still search.
+    _LIKE_PATTERN_MAX = 50
 
     @classmethod
     def _like_pattern(cls, term: str) -> str | None:
-        """Literal LIKE pattern for user text, or None if too long to embed.
+        """Literal LIKE pattern for user text, guaranteed <= 50 bytes.
         %, _ and \\ are escaped so the text matches literally, not as a
-        pattern language."""
+        pattern language. Over-long terms are truncated byte-wise
+        (escape-aware) to a prefix pattern."""
         t = (term or "").strip()
-        if not t or len(t) > cls._LIKE_MAX:
+        if not t:
             return None
-        esc = t.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        return f"%{esc}%"
+        budget = cls._LIKE_PATTERN_MAX - 2  # the two % wrappers
+        out: list[str] = []
+        used = 0
+        for ch in t:
+            esc = ("\\" + ch) if ch in "\\%_" else ch
+            b = len(esc.encode("utf-8"))
+            if used + b > budget:
+                break
+            out.append(esc)
+            used += b
+        if not out:
+            return None
+        return "%" + "".join(out) + "%"
 
     def add_alias(self, entity_name: str, alias: str) -> int:
         self._bump()
@@ -796,4 +817,25 @@ class Mirsad:
             "decisions": q("SELECT COUNT(*) FROM decisions"),
             "episodes": q("SELECT COUNT(*) FROM episodes"),
             "open_conflicts": q("SELECT COUNT(*) FROM conflicts WHERE status='open'"),
+        }
+
+    def version_info(self) -> dict:
+        """Identity of the running build, so a client can verify which
+        deployment it is actually talking to (added 0.2.3 after a tester
+        could not confirm a fix had reached the hosted copy)."""
+        import os
+        version = None
+        try:
+            from importlib.metadata import version as _pkg_version
+            version = _pkg_version("mirsad-mcp")
+        except Exception:
+            pass
+        if not version:
+            from . import __version__ as version  # type: ignore
+        return {
+            "package_version": version,
+            "commit": os.environ.get("MIRSAD_COMMIT") or "unknown",
+            "deployed_at": os.environ.get("MIRSAD_DEPLOYED_AT"),
+            "schema_version": SCHEMA_VERSION,
+            "runtime": "local",
         }

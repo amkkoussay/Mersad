@@ -1,12 +1,12 @@
 """MIRSAD MCP server — the bridge every assistant connects to.
 
-Run (HTTP, for remote MCP connectors):
+Run (HTTP, for Claude custom connectors / ChatGPT plugins):
     MIRSAD_DB=~/mirsad.db python -m mirsad.mcp_server
 Run (stdio, for local MCP clients):
     MIRSAD_TRANSPORT=stdio MIRSAD_DB=~/mirsad.db python -m mirsad.mcp_server
 
 Every write tool takes `agent`: the name of the assistant writing
-("agent-a", "agent-b", "user"...). In production this identity
+("claude", "chatgpt", "muse", "user"...). In production this identity
 should come from the OAuth login, not from the caller — see README.
 """
 
@@ -118,6 +118,14 @@ def memory_stats() -> dict:
     return m.stats()
 
 
+@mcp.tool()
+def version_info() -> dict:
+    """Identity of this running build: package version, source commit,
+    deployment timestamp, schema version and runtime — so a client can
+    verify which deployment it is connected to."""
+    return m.version_info()
+
+
 @mcp.custom_route("/", methods=["GET"])
 async def viewer_page(request: Request) -> HTMLResponse:
     """The live memory map: watch the shared memory as a network while
@@ -138,10 +146,6 @@ async def graph_json(request: Request) -> JSONResponse:
     return JSONResponse(m.graph_snapshot())
 
 
-def main() -> None:
+if __name__ == "__main__":
     transport = os.environ.get("MIRSAD_TRANSPORT", "streamable-http")
     mcp.run(transport=transport)
-
-
-if __name__ == "__main__":
-    main()
