@@ -198,6 +198,24 @@ class Mirsad:
         parts = re.split(r"[\s؟?.,،:;!«»\"'()]+", cls._norm(topic))
         return sorted({t for t in parts if len(t) >= 2 and t not in cls._STOPWORDS})
 
+    # SQLite refuses LIKE patterns longer than SQLITE_MAX_LIKE_PATTERN_LENGTH
+    # (50,000 bytes by default) with "LIKE or GLOB pattern too complex".
+    # why()/recall() embed user text in LIKE patterns, so one long query used
+    # to crash the whole call. Embedded terms are capped far below any
+    # build's limit; longer inputs are covered by per-token search instead.
+    _LIKE_MAX = 500
+
+    @classmethod
+    def _like_pattern(cls, term: str) -> str | None:
+        """Literal LIKE pattern for user text, or None if too long to embed.
+        %, _ and \\ are escaped so the text matches literally, not as a
+        pattern language."""
+        t = (term or "").strip()
+        if not t or len(t) > cls._LIKE_MAX:
+            return None
+        esc = t.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{esc}%"
+
     def add_alias(self, entity_name: str, alias: str) -> int:
         self._bump()
         eid = self.entity(entity_name)
@@ -537,29 +555,34 @@ class Mirsad:
         """Answer 'why did we choose X?' — decisions whose title, description,
         items or linked entities match the topic, oldest first, each with its
         full chain (reasons, evidence, rejected alternatives, outcomes)."""
-        rows = self.db.execute(
-            """SELECT DISTINCT d.id FROM decisions d
-               LEFT JOIN decision_entities de ON de.decision_id = d.id
-               LEFT JOIN entities e ON e.id = de.entity_id
-               WHERE d.title LIKE ? OR d.description LIKE ? OR e.name LIKE ?
-               ORDER BY d.made_at""",
-            (f"%{topic}%", f"%{topic}%", f"%{topic}%"),
-        ).fetchall()
-        if not rows:  # fall back to item text
+        pat = self._like_pattern(topic)
+        rows = []
+        if pat is not None:
+            rows = self.db.execute(
+                """SELECT DISTINCT d.id FROM decisions d
+                   LEFT JOIN decision_entities de ON de.decision_id = d.id
+                   LEFT JOIN entities e ON e.id = de.entity_id
+                   WHERE d.title LIKE ? ESCAPE '\\' OR d.description LIKE ? ESCAPE '\\' OR e.name LIKE ? ESCAPE '\\'
+                   ORDER BY d.made_at""",
+                (pat, pat, pat),
+            ).fetchall()
+        if not rows and pat is not None:  # fall back to item text
             rows = self.db.execute(
                 """SELECT DISTINCT d.id FROM decisions d
                    JOIN decision_items di ON di.decision_id = d.id
-                   WHERE di.text LIKE ? ORDER BY d.made_at""",
-                (f"%{topic}%",),
+                   WHERE di.text LIKE ? ESCAPE '\\' ORDER BY d.made_at""",
+                (pat,),
             ).fetchall()
         if not rows:  # last resort: word by word + alias resolution
             ids: list[int] = []
             for tok in self._topic_tokens(topic):
-                like = f"%{tok}%"
+                like = self._like_pattern(tok)
+                if like is None:
+                    continue
                 for r in self.db.execute(
                     """SELECT DISTINCT d.id FROM decisions d
                        LEFT JOIN decision_items di ON di.decision_id = d.id
-                       WHERE d.title LIKE ? OR d.description LIKE ? OR di.text LIKE ?""",
+                       WHERE d.title LIKE ? ESCAPE '\\' OR d.description LIKE ? ESCAPE '\\' OR di.text LIKE ? ESCAPE '\\'""",
                     (like, like, like),
                 ).fetchall():
                     if r["id"] not in ids:
@@ -609,7 +632,7 @@ class Mirsad:
 
     def recall(self, query: str, limit: int = 10) -> dict:
         toks = self._topic_tokens(query)
-        fts_q = " OR ".join(f'"{t}"' for t in toks) if toks else f'"{query}"'
+        fts_q = " OR ".join(f'"{t}"' for t in toks) if toks else f'"{query[:200]}"'
         hits = self.db.execute(
             """SELECT kind, title, body FROM search_index
                WHERE search_index MATCH ? LIMIT ?""",
@@ -617,16 +640,21 @@ class Mirsad:
         ).fetchall() if query.strip() else []
         canonical = self.resolve_subject(query)
         terms = list(dict.fromkeys([query, canonical, *toks]))
-        terms = [t for t in terms if t]
-        cond = " OR ".join("(e.name LIKE ? OR f.object_text LIKE ?)" for _ in terms)
-        binds: list = []
-        for t in terms:
-            binds += [f"%{t}%", f"%{t}%"]
-        facts = self.db.execute(
-            f"""SELECT f.*, e.name AS subject FROM facts f JOIN entities e ON e.id=f.subject_id
-               WHERE {cond} ORDER BY f.recorded_at DESC LIMIT ?""",
-            (*binds, limit),
-        ).fetchall()
+        pats = [p for t in terms if (p := self._like_pattern(t))]
+        facts = []
+        if pats:
+            cond = " OR ".join(
+                "(e.name LIKE ? ESCAPE '\\' OR f.object_text LIKE ? ESCAPE '\\')"
+                for _ in pats
+            )
+            binds: list = []
+            for p in pats:
+                binds += [p, p]
+            facts = self.db.execute(
+                f"""SELECT f.*, e.name AS subject FROM facts f JOIN entities e ON e.id=f.subject_id
+                   WHERE {cond} ORDER BY f.recorded_at DESC LIMIT ?""",
+                (*binds, limit),
+            ).fetchall()
         return {
             "query": query,
             "text_hits": [{"kind": h["kind"], "title": h["title"], "body": h["body"]} for h in hits],
