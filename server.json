@@ -1,35 +1,35 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
-  "name": "io.github.amkkoussay/mersad",
-  "title": "Mirsad",
   "description": "Shared memory for AI agents: bi-temporal facts, first-class decisions, owner-resolved conflicts.",
-  "version": "0.2.1",
+  "name": "io.github.amkkoussay/mersad",
   "packages": [
     {
-      "registryType": "pypi",
-      "identifier": "mirsad-mcp",
-      "version": "0.2.1",
-      "transport": {
-        "type": "stdio"
-      },
       "environmentVariables": [
         {
-          "name": "MIRSAD_TRANSPORT",
+          "default": "stdio",
           "description": "Transport to serve: stdio for MCP clients (use this), streamable-http for the local web viewer.",
           "format": "string",
           "isRequired": false,
           "isSecret": false,
-          "default": "stdio"
+          "name": "MIRSAD_TRANSPORT"
         },
         {
-          "name": "MIRSAD_DB",
+          "default": "./mirsad.db",
           "description": "Path to the SQLite memory file (created if missing).",
           "format": "filepath",
           "isRequired": false,
           "isSecret": false,
-          "default": "./mirsad.db"
+          "name": "MIRSAD_DB"
         }
-      ]
+      ],
+      "identifier": "mirsad-mcp",
+      "registryType": "pypi",
+      "transport": {
+        "type": "stdio"
+      },
+      "version": "0.2.2"
     }
-  ]
+  ],
+  "title": "Mirsad",
+  "version": "0.2.2"
 }
