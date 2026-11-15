@@ -1,6 +1,6 @@
 """MIRSAD core engine — temporal knowledge graph + first-class decisions.
 
-Design lessons applied (see ../research/):
+Design lessons applied (see README.md):
 - Graphiti: bi-temporal facts (valid time vs recorded time), facts are
   invalidated, never deleted; every fact traces to a raw episode.
 - Cognee: contradictions become explicit conflict records, not silent merges.
@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
@@ -117,18 +118,143 @@ def fmt_ts(ts: float | None) -> str | None:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
 
 
-# Version of the database layout created by SCHEMA above. Bump when the
-# schema changes; reported by version_info so clients can verify builds.
-SCHEMA_VERSION = 1
+# Version of the database layout created by SCHEMA above plus the
+# migrations in Mirsad._migrate. Bump when the schema changes; reported
+# by version_info so clients can verify builds.
+#   v1: the original layout (<= 0.2.3), no migration path.
+#   v2: entities.name_norm + entity_aliases.alias_norm (indexed name
+#       resolution), facts/decisions.fts_rowid (FTS rows are deleted when
+#       their record is invalidated/superseded), search_index rebuilt
+#       from current records only.
+SCHEMA_VERSION = 2
 
 
 class Mirsad:
     def __init__(self, db_path: str | Path):
         self.db_path = str(db_path)
-        self.db = sqlite3.connect(self.db_path)
-        self.db.row_factory = sqlite3.Row
-        self.db.executescript(SCHEMA)
-        self.db.commit()
+        # One connection PER THREAD, never shared across threads: the MCP
+        # server runs tool calls on a thread pool, and a single shared
+        # sqlite3 connection raises ProgrammingError the moment another
+        # thread touches it (check_same_thread). WAL lets the per-thread
+        # connections read concurrently; busy_timeout rides out the
+        # single-writer moments instead of failing with "database is
+        # locked". (Verified failure + fix, 2026-11-15.)
+        self._local = threading.local()
+        conn = self._open_connection()
+        self._local.conn = conn
+        conn.executescript(SCHEMA)
+        conn.commit()
+        self._migrate(conn)
+
+    def _open_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=10000")
+        return conn
+
+    @property
+    def db(self) -> sqlite3.Connection:
+        """The calling thread's own connection, opened on first use."""
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = self._open_connection()
+            self._local.conn = conn
+        return conn
+
+    # ---------- schema migrations ----------
+
+    def _stored_schema_version(self, conn: sqlite3.Connection) -> int:
+        row = conn.execute(
+            "SELECT v FROM meta WHERE k='schema_version'").fetchone()
+        return row["v"] if row else 1  # pre-migration databases are v1
+
+    def _set_schema_version(self, conn: sqlite3.Connection, v: int) -> None:
+        conn.execute(
+            """INSERT INTO meta(k, v) VALUES ('schema_version', ?)
+               ON CONFLICT(k) DO UPDATE SET v = excluded.v""",
+            (v,),
+        )
+
+    @staticmethod
+    def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+        return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        """Bring any older database to SCHEMA_VERSION, step by step.
+        Every step is guarded so re-running it on a current database is
+        a no-op; a fresh database walks the same steps as a legacy one."""
+        if self._stored_schema_version(conn) < 2:
+            self._migrate_v2(conn)
+            self._set_schema_version(conn, 2)
+        conn.commit()
+
+    def _migrate_v2(self, conn: sqlite3.Connection) -> None:
+        # Indexed normalized-name columns (name resolution was a full
+        # table scan compared in Python on every lookup).
+        if "name_norm" not in self._columns(conn, "entities"):
+            conn.execute("ALTER TABLE entities ADD COLUMN name_norm TEXT")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entities_name_norm "
+            "ON entities(name_norm)")
+        for r in conn.execute(
+                "SELECT id, name FROM entities WHERE name_norm IS NULL"):
+            conn.execute("UPDATE entities SET name_norm=? WHERE id=?",
+                         (self._norm(r["name"]), r["id"]))
+        if "alias_norm" not in self._columns(conn, "entity_aliases"):
+            conn.execute(
+                "ALTER TABLE entity_aliases ADD COLUMN alias_norm TEXT")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_aliases_alias_norm "
+            "ON entity_aliases(alias_norm)")
+        for r in conn.execute(
+                "SELECT entity_id, alias FROM entity_aliases "
+                "WHERE alias_norm IS NULL"):
+            conn.execute(
+                "UPDATE entity_aliases SET alias_norm=? "
+                "WHERE entity_id=? AND alias=?",
+                (self._norm(r["alias"]), r["entity_id"], r["alias"]))
+        # FTS bookkeeping: each indexed record remembers its search_index
+        # rowid so the row can be deleted when the record stops being
+        # current (invalidated fact, superseded decision).
+        if "fts_rowid" not in self._columns(conn, "facts"):
+            conn.execute("ALTER TABLE facts ADD COLUMN fts_rowid INTEGER")
+        if "fts_rowid" not in self._columns(conn, "decisions"):
+            conn.execute(
+                "ALTER TABLE decisions ADD COLUMN fts_rowid INTEGER")
+        # Rebuild the index from CURRENT records only: legacy indexes
+        # carry a stale row for every value ever written (duplicates and
+        # superseded values included), and recall surfaced them as hits.
+        conn.execute("DELETE FROM search_index")
+        for f in conn.execute(
+                """SELECT id, subject_id, predicate, object_text FROM facts
+                   WHERE valid_to IS NULL"""):
+            rid = self._index_on(
+                conn, "fact",
+                f"{self._entity_name(f['subject_id'])} {f['predicate']}",
+                f["object_text"])
+            conn.execute("UPDATE facts SET fts_rowid=? WHERE id=?",
+                         (rid, f["id"]))
+        for d in conn.execute(
+                """SELECT id, title, description FROM decisions
+                   WHERE status != 'superseded'"""):
+            texts = [i["text"] for i in conn.execute(
+                "SELECT text FROM decision_items WHERE decision_id=?",
+                (d["id"],))]
+            rid = self._index_on(
+                conn, "decision", d["title"],
+                " ".join([d["description"] or ""] + texts))
+            conn.execute("UPDATE decisions SET fts_rowid=? WHERE id=?",
+                         (rid, d["id"]))
+
+    @staticmethod
+    def _index_on(conn: sqlite3.Connection, kind: str, title: str,
+                  body: str) -> int:
+        cur = conn.execute(
+            "INSERT INTO search_index(kind, title, body) VALUES (?,?,?)",
+            (kind, title, body),
+        )
+        return cur.lastrowid
 
     # ---------- entities & episodes ----------
 
@@ -139,8 +265,8 @@ class Mirsad:
         if row:
             return row["id"]
         cur = self.db.execute(
-            "INSERT INTO entities(name, type, created_at) VALUES (?,?,?)",
-            (name, type, _now()),
+            "INSERT INTO entities(name, type, created_at, name_norm) VALUES (?,?,?,?)",
+            (name, type, _now(), self._norm(name)),
         )
         self.db.commit()
         return cur.lastrowid
@@ -171,11 +297,16 @@ class Mirsad:
         self.db.commit()
         return cur.lastrowid
 
-    def _index(self, kind: str, title: str, body: str) -> None:
-        self.db.execute(
-            "INSERT INTO search_index(kind, title, body) VALUES (?,?,?)",
-            (kind, title, body),
-        )
+    def _index(self, kind: str, title: str, body: str) -> int:
+        return self._index_on(self.db, kind, title, body)
+
+    def _unindex(self, fts_rowid: int | None) -> None:
+        """Remove a record's search_index row (it stopped being current:
+        an invalidated fact or a superseded decision must not keep
+        surfacing in recall as if it were live knowledge)."""
+        if fts_rowid is not None:
+            self.db.execute(
+                "DELETE FROM search_index WHERE rowid=?", (fts_rowid,))
 
     # ---------- names: normalization, aliases, resolution ----------
 
@@ -241,8 +372,8 @@ class Mirsad:
         self._bump()
         eid = self.entity(entity_name)
         self.db.execute(
-            "INSERT OR IGNORE INTO entity_aliases(entity_id, alias) VALUES (?,?)",
-            (eid, alias),
+            "INSERT OR IGNORE INTO entity_aliases(entity_id, alias, alias_norm) VALUES (?,?,?)",
+            (eid, alias, self._norm(alias)),
         )
         linked = self._backfill_object_links(eid)
         self.db.commit()
@@ -251,7 +382,9 @@ class Mirsad:
     def resolve_subject(self, name: str) -> str | None:
         """Resolve a name as an agent wrote it (any script, diacritics, case)
         to the canonical stored entity name, via exact match, normalized
-        match, or a registered alias."""
+        match, or a registered alias. All three lookups are indexed
+        (entities.name UNIQUE, entities.name_norm, aliases.alias_norm) —
+        this used to fetch every entity and alias and compare in Python."""
         row = self.db.execute(
             "SELECT name FROM entities WHERE name=?", (name,)
         ).fetchone()
@@ -260,20 +393,23 @@ class Mirsad:
         target = self._norm(name)
         if not target:
             return None
-        for e in self.db.execute("SELECT name FROM entities").fetchall():
-            if self._norm(e["name"]) == target:
-                return e["name"]
-        for a in self.db.execute(
-            """SELECT a.alias AS alias, e.name AS canonical FROM entity_aliases a
-               JOIN entities e ON e.id = a.entity_id"""
-        ).fetchall():
-            if self._norm(a["alias"]) == target:
-                return a["canonical"]
-        return None
+        row = self.db.execute(
+            "SELECT name FROM entities WHERE name_norm=?", (target,)
+        ).fetchone()
+        if row:
+            return row["name"]
+        row = self.db.execute(
+            """SELECT e.name AS canonical FROM entity_aliases a
+               JOIN entities e ON e.id = a.entity_id
+               WHERE a.alias_norm=?""",
+            (target,),
+        ).fetchone()
+        return row["canonical"] if row else None
 
     def _resolve_entity_id(self, name: str) -> int | None:
         """Resolve any name (entity name or registered alias, any script or
-        case, Arabic diacritics ignored) to an entity id. None if unknown."""
+        case, Arabic diacritics ignored) to an entity id. None if unknown.
+        Indexed lookups only — see resolve_subject."""
         row = self.db.execute(
             "SELECT id FROM entities WHERE name=?", (name,)
         ).fetchone()
@@ -282,15 +418,16 @@ class Mirsad:
         target = self._norm(name)
         if not target:
             return None
-        for e in self.db.execute("SELECT id, name FROM entities").fetchall():
-            if self._norm(e["name"]) == target:
-                return e["id"]
-        for a in self.db.execute(
-            "SELECT alias, entity_id FROM entity_aliases"
-        ).fetchall():
-            if self._norm(a["alias"]) == target:
-                return a["entity_id"]
-        return None
+        row = self.db.execute(
+            "SELECT id FROM entities WHERE name_norm=?", (target,)
+        ).fetchone()
+        if row:
+            return row["id"]
+        row = self.db.execute(
+            "SELECT entity_id FROM entity_aliases WHERE alias_norm=?",
+            (target,),
+        ).fetchone()
+        return row["entity_id"] if row else None
 
     def _backfill_object_links(self, entity_id: int) -> int:
         """Auto-link: when an entity appears (created or given a new alias),
@@ -341,11 +478,11 @@ class Mirsad:
         """Store a fact. If an active fact exists for the same
         subject+predicate with a different value, it is invalidated
         (valid_to closed, expired_at stamped) — never deleted.
-        A cross-agent overwrite opens a conflict for the user."""
-        self._bump()
+        A cross-agent overwrite opens a conflict for the user.
+        Rewriting the SAME value that is already current is a no-op
+        (idempotent): agents retry writes, and a duplicate active row
+        would silently double the fact in storage and in the index."""
         valid_from = valid_from if valid_from is not None else _now()
-        ep_id = self.add_episode(source_agent, episode or f"{subject} {predicate} {object_text}", source_ref) \
-            if (episode or source_ref) else None
         resolved = self._resolve_entity_id(subject)
         subject_created = resolved is None
         sid = resolved if resolved is not None else self.entity(subject, subject_type)
@@ -356,6 +493,20 @@ class Mirsad:
             (sid, predicate),
         ).fetchone()
 
+        if old and old["object_text"] == object_text:
+            return {
+                "fact_id": old["id"],
+                "superseded_fact_id": None,
+                "conflict_opened": None,
+                "linked_object_id": old["object_id"],
+                "backfilled_links": 0,
+                "duplicate": True,
+            }
+
+        self._bump()
+        ep_id = self.add_episode(source_agent, episode or f"{subject} {predicate} {object_text}", source_ref) \
+            if (episode or source_ref) else None
+
         superseded = None
         conflict_id = None
         if old and old["object_text"] != object_text:
@@ -363,6 +514,7 @@ class Mirsad:
                 "UPDATE facts SET valid_to=?, expired_at=? WHERE id=?",
                 (valid_from, _now(), old["id"]),
             )
+            self._unindex(old["fts_rowid"])
             superseded = old["id"]
             if old["source_agent"] != source_agent:
                 cur = self.db.execute(
@@ -403,7 +555,9 @@ class Mirsad:
         # A brand-new subject entity joins its natural path: earlier facts
         # that named it as their object now link to it.
         backfilled = self._backfill_object_links(sid) if subject_created else 0
-        self._index("fact", f"{subject} {predicate}", object_text)
+        fts_rowid = self._index("fact", f"{subject} {predicate}", object_text)
+        self.db.execute(
+            "UPDATE facts SET fts_rowid=? WHERE id=?", (fts_rowid, new_id))
         self.db.commit()
         return {
             "fact_id": new_id,
@@ -486,10 +640,16 @@ class Mirsad:
         )
         did = cur.lastrowid
         if supersedes:
+            srow = self.db.execute(
+                "SELECT fts_rowid FROM decisions WHERE id=?",
+                (supersedes,),
+            ).fetchone()
             self.db.execute(
                 "UPDATE decisions SET status='superseded', superseded_by_id=? WHERE id=?",
                 (did, supersedes),
             )
+            if srow:
+                self._unindex(srow["fts_rowid"])
         items: list[tuple[str, str, str | None]] = []
         for r in reasons or []:
             items.append(("reason", r, None))
@@ -511,11 +671,13 @@ class Mirsad:
                 "INSERT OR IGNORE INTO decision_entities(decision_id, entity_id) VALUES (?,?)",
                 (did, eid),
             )
-        self._index(
+        fts_rowid = self._index(
             "decision",
             title,
             " ".join([description] + [t for _, t, _ in items]),
         )
+        self.db.execute(
+            "UPDATE decisions SET fts_rowid=? WHERE id=?", (fts_rowid, did))
         self.db.commit()
         return did
 
@@ -690,51 +852,115 @@ class Mirsad:
 
     # ---------- graph snapshot (for the live viewer) ----------
 
-    def graph_snapshot(self) -> dict:
+    def _all_decisions(self) -> list[dict]:
+        """Every decision with its full chain, assembled from three bulk
+        queries (decisions, items, entity links) instead of one
+        get_decision() round-trip per decision."""
+        rows = self.db.execute("SELECT * FROM decisions ORDER BY id").fetchall()
+        by_id: dict[int, dict] = {}
+        for row in rows:
+            by_id[row["id"]] = {
+                "id": row["id"],
+                "title": row["title"],
+                "description": row["description"],
+                "status": row["status"],
+                "made_by": row["made_by"],
+                "made_at": fmt_ts(row["made_at"]),
+                "supersedes": row["supersedes_id"],
+                "superseded_by": row["superseded_by_id"],
+                "entities": [],
+                "reasons": [],
+                "evidence": [],
+                "alternatives_rejected": [],
+                "effects": [],
+                "outcomes": [],
+            }
+        for it in self.db.execute(
+                "SELECT decision_id, kind, text, ref, recorded_by "
+                "FROM decision_items ORDER BY id"):
+            d = by_id.get(it["decision_id"])
+            if d is None:
+                continue
+            if it["kind"] == "reason":
+                d["reasons"].append(it["text"])
+            elif it["kind"] == "evidence":
+                d["evidence"].append({"text": it["text"], "ref": it["ref"]})
+            elif it["kind"] == "alternative":
+                d["alternatives_rejected"].append(it["text"])
+            elif it["kind"] == "effect":
+                d["effects"].append(it["text"])
+            elif it["kind"] == "outcome":
+                d["outcomes"].append(
+                    {"text": it["text"], "by": it["recorded_by"]})
+        for en in self.db.execute(
+                """SELECT de.decision_id AS did, e.name FROM decision_entities de
+                   JOIN entities e ON e.id = de.entity_id"""):
+            if en["did"] in by_id:
+                by_id[en["did"]]["entities"].append(en["name"])
+        return [by_id[r["id"]] for r in rows]
+
+    def graph_snapshot(self, light: bool = False) -> dict:
+        """The whole memory as nodes + edges (+ per-node details unless
+        light). Built from a fixed set of bulk queries — the previous
+        version ran three queries PER ENTITY plus one get_decision per
+        decision, and the viewer polls this every 1.2s, so cost grew
+        linearly with memory size on every single poll. With light=True
+        the details dict is omitted entirely; the viewer fetches one
+        node's detail on click via graph_node_detail()."""
         nodes: list[dict] = []
         edges: list[dict] = []
         details: dict[str, dict] = {}
         ent_node: dict[str, str] = {}
 
-        for e in self.db.execute("SELECT id, name, type FROM entities ORDER BY id"):
+        entities = self.db.execute(
+            "SELECT id, name, type FROM entities ORDER BY id").fetchall()
+        current_facts = self.db.execute(
+            """SELECT subject_id, predicate, object_text, source_agent,
+                      valid_from FROM facts WHERE valid_to IS NULL
+               ORDER BY recorded_at""").fetchall()
+        facts_by_subject: dict[int, list] = {}
+        for f in current_facts:
+            facts_by_subject.setdefault(f["subject_id"], []).append(f)
+        dec_titles: dict[int, list[str]] = {}
+        for r in self.db.execute(
+                """SELECT de.entity_id AS eid, d.title FROM decisions d
+                   JOIN decision_entities de ON de.decision_id = d.id
+                   ORDER BY d.made_at"""):
+            dec_titles.setdefault(r["eid"], []).append(r["title"])
+        timeline_counts = {
+            r["subject_id"]: r["c"] for r in self.db.execute(
+                "SELECT subject_id, COUNT(*) AS c FROM facts "
+                "GROUP BY subject_id")
+        }
+
+        for e in entities:
             nid = f"ent:{e['id']}"
             ent_node[e["name"]] = nid
-            facts = self.db.execute(
-                """SELECT predicate, object_text, source_agent, valid_from
-                   FROM facts WHERE subject_id=? AND valid_to IS NULL
-                   ORDER BY recorded_at""", (e["id"],)).fetchall()
-            decs = self.db.execute(
-                """SELECT d.title FROM decisions d
-                   JOIN decision_entities de ON de.decision_id = d.id
-                   WHERE de.entity_id=? ORDER BY d.made_at""", (e["id"],)).fetchall()
-            timeline_count = self.db.execute(
-                "SELECT COUNT(*) c FROM facts WHERE subject_id=?",
-                (e["id"],)).fetchone()["c"]
             nodes.append({"id": nid, "kind": "entity", "label": e["name"],
                           "sub": e["type"]})
-            details[nid] = {
-                "kind": "entity", "title": e["name"], "sub": e["type"],
-                "facts": [dict(f) for f in facts],
-                "decisions": [d["title"] for d in decs],
-                "timeline_count": timeline_count,
-            }
+            if not light:
+                details[nid] = {
+                    "kind": "entity", "title": e["name"], "sub": e["type"],
+                    "facts": [dict(f) for f in facts_by_subject.get(e["id"], [])],
+                    "decisions": dec_titles.get(e["id"], []),
+                    "timeline_count": timeline_counts.get(e["id"], 0),
+                }
 
-        for d in self.db.execute("SELECT id, title, status FROM decisions ORDER BY id"):
+        all_decisions = self._all_decisions()
+        for d in all_decisions:
             nid = f"dec:{d['id']}"
             nodes.append({"id": nid, "kind": "decision", "label": d["title"],
                           "sub": d["status"]})
-            details[nid] = {"kind": "decision", **self.get_decision(d["id"])}
-        for link in self.db.execute(
-            """SELECT de.decision_id, e.name FROM decision_entities de
-               JOIN entities e ON e.id = de.entity_id"""):
-            edges.append({"source": f"dec:{link['decision_id']}",
-                          "target": ent_node[link["name"]],
-                          "label": "involves", "kind": "decision"})
-        for d in self.db.execute(
-                "SELECT id, supersedes_id FROM decisions WHERE supersedes_id IS NOT NULL"):
-            edges.append({"source": f"dec:{d['id']}",
-                          "target": f"dec:{d['supersedes_id']}",
-                          "label": "supersedes", "kind": "decision"})
+            if not light:
+                details[nid] = {"kind": "decision", **d}
+            for name in d["entities"]:
+                edges.append({"source": nid,
+                              "target": ent_node[name],
+                              "label": "involves", "kind": "decision"})
+            if d["supersedes"]:
+                edges.append({"source": nid,
+                              "target": f"dec:{d['supersedes']}",
+                              "label": "supersedes", "kind": "decision"})
 
         val_node: dict[str, str] = {}
         for f in self.db.execute(
@@ -748,13 +974,16 @@ class Mirsad:
                     val_node[f["object_text"]] = vid
                     nodes.append({"id": vid, "kind": "value",
                                   "label": f["object_text"], "sub": "value"})
-                    details[vid] = {"kind": "value",
-                                    "title": f["object_text"], "facts": []}
+                    if not light:
+                        details[vid] = {"kind": "value",
+                                        "title": f["object_text"],
+                                        "facts": []}
                 target = val_node[f["object_text"]]
-                details[target]["facts"].append(
-                    {"subject": f["subject"], "predicate": f["predicate"],
-                     "source_agent": f["source_agent"],
-                     "valid_from": f["valid_from"]})
+                if not light:
+                    details[target]["facts"].append(
+                        {"subject": f["subject"], "predicate": f["predicate"],
+                         "source_agent": f["source_agent"],
+                         "valid_from": f["valid_from"]})
             edges.append({"source": ent_node[f["subject"]], "target": target,
                           "label": f["predicate"], "kind": "fact",
                           "by": f["source_agent"], "at": f["valid_from"]})
@@ -765,13 +994,55 @@ class Mirsad:
         for n in nodes:
             if n["id"] in conflicted:
                 n["conflict"] = True
-        return {
+        snap = {
             "version": self.graph_version(),
-            "nodes": nodes, "edges": edges, "details": details,
+            "nodes": nodes, "edges": edges,
             "open_conflicts": open_conflicts,
             "stats": {**self.stats(),
                       "nodes": len(nodes), "edges": len(edges)},
         }
+        if not light:
+            snap["details"] = details
+        return snap
+
+    def graph_node_detail(self, node_id: str) -> dict | None:
+        """One node's story, on demand — the detail half of the old
+        graph_snapshot payload, fetched only when a viewer clicks.
+        Value nodes return None: their story is derivable from the
+        snapshot's edges, which the viewer already holds."""
+        kind, _, rest = (node_id or "").partition(":")
+        try:
+            num = int(rest)
+        except ValueError:
+            return None
+        if kind == "ent":
+            row = self.db.execute(
+                "SELECT id, name, type FROM entities WHERE id=?",
+                (num,)).fetchone()
+            if not row:
+                return None
+            facts = self.db.execute(
+                """SELECT predicate, object_text, source_agent, valid_from
+                   FROM facts WHERE subject_id=? AND valid_to IS NULL
+                   ORDER BY recorded_at""", (num,)).fetchall()
+            decs = self.db.execute(
+                """SELECT d.title FROM decisions d
+                   JOIN decision_entities de ON de.decision_id = d.id
+                   WHERE de.entity_id=? ORDER BY d.made_at""",
+                (num,)).fetchall()
+            timeline_count = self.db.execute(
+                "SELECT COUNT(*) c FROM facts WHERE subject_id=?",
+                (num,)).fetchone()["c"]
+            return {
+                "kind": "entity", "title": row["name"], "sub": row["type"],
+                "facts": [dict(f) for f in facts],
+                "decisions": [d["title"] for d in decs],
+                "timeline_count": timeline_count,
+            }
+        if kind == "dec":
+            d = self.get_decision(num)
+            return {"kind": "decision", **d} if d else None
+        return None
 
     def export_markdown(self) -> str:
         lines = ["# MIRSAD — سجلّ الذاكرة المشتركة", ""]

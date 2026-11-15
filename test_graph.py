@@ -24,13 +24,13 @@ db = os.path.join(tempfile.mkdtemp(), "graph.db")
 m = Mirsad(db)
 
 v0 = m.graph_version()
-m.remember_fact("Sfax", "weather", "rainy", source_agent="agent-a")
+m.remember_fact("Sfax", "weather", "rainy", source_agent="muse")
 v1 = m.graph_version()
 check("change counter moves on a write", v1 > v0)
 
 d = m.record_decision(
     title="Pick Sfax for the field test",
-    made_by="owner",
+    made_by="koussay",
     description="Weather window matters.",
     reasons=["Rain expected this week"],
     entities=["Sfax"],
@@ -57,7 +57,7 @@ ddet = g["details"][dec_node["id"]]
 check("decision story carries its reason",
       ddet["reasons"] and ddet["reasons"][0] == "Rain expected this week")
 
-m.remember_fact("Sfax", "weather", "sunny", source_agent="agent-b")
+m.remember_fact("Sfax", "weather", "sunny", source_agent="chatgpt")
 g2 = m.graph_snapshot()
 sfax2 = next(n for n in g2["nodes"] if n["label"] == "Sfax")
 check("cross-agent overwrite flags the node as conflicted",
@@ -66,7 +66,8 @@ check("snapshot reports the open conflict", len(g2["open_conflicts"]) == 1)
 check("stats counts nodes and edges",
       g2["stats"]["nodes"] == len(g2["nodes"]) and g2["stats"]["edges"] == len(g2["edges"]))
 check("viewer page ships a canvas and polls /graph",
-      "<canvas" in VIEWER_HTML and "fetch('/graph')" in VIEWER_HTML)
+      "<canvas" in VIEWER_HTML and "/graph?v=" in VIEWER_HTML
+      and "setInterval(refresh, 1200)" in VIEWER_HTML)
 
 print()
 if failures:

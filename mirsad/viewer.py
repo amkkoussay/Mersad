@@ -35,7 +35,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   .stats b{color:var(--ink);font-size:15px}
   .legend{display:flex;gap:12px;font-size:12px;color:var(--dim)}
   .chip{display:inline-block;width:10px;height:10px;border-radius:50%;margin-inline-end:5px;vertical-align:middle}
-  #map{position:fixed;inset:58px 0 0 0;display:block;cursor:grab}
+  #map{position:fixed;inset:58px 0 0 0;display:block;cursor:grab;touch-action:none}
   #map:active{cursor:grabbing}
   aside{position:fixed;top:58px;bottom:0;inset-inline-end:0;width:340px;max-width:88vw;background:var(--panel);
     border-inline-start:1px solid var(--line);padding:18px;overflow-y:auto;transform:translateX(0);z-index:4}
@@ -73,7 +73,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 </header>
 <canvas id="map"></canvas>
 <aside id="panel" class="hidden" dir="rtl"></aside>
-<div class="hint">اسحب للتنقل · عجلة الفأرة للتقريب · اضغط أي عقدة لتقرأ قصتها</div>
+<div class="hint">اسحب للتنقل · قرّب بإصبعين أو بعجلة الفأرة · اضغط أي عقدة لتقرأ قصتها</div>
 
 <script>
 "use strict";
@@ -97,10 +97,11 @@ function place(n, near){
 
 async function refresh(){
   try{
-    const r = await fetch('/graph'); if(!r.ok) return;
+    const r = await fetch(version >= 0 ? '/graph?v=' + version : '/graph');
+    if(!r.ok) return;
     const g = await r.json();
-    if(g.version === version && version !== -1) return;
-    version = g.version; details = g.details;
+    if(g.unchanged || (g.version === version && version !== -1)) return;
+    version = g.version;
     const seen = new Set();
     for(const sn of g.nodes){
       seen.add(sn.id);
@@ -120,7 +121,7 @@ async function refresh(){
     document.getElementById('st-dec').textContent = g.stats.decisions;
     document.getElementById('st-facts').textContent = g.stats.facts_current;
     document.getElementById('st-conf').textContent = g.stats.open_conflicts;
-    if(selected && details[selected]) showStory(selected);
+    if(selected){ delete details[selected]; selectNode(selected); }
   }catch(e){ /* server momentarily busy; next poll retries */ }
 }
 setInterval(refresh, 1200); refresh();
@@ -184,29 +185,88 @@ function draw(){
 function frame(){ step(); draw(); }
 requestAnimationFrame(frame);
 
-// ---- interaction ----
-let dragNode=null, dragMap=null;
+// ---- interaction: Pointer Events, one code path for mouse + touch ----
+// (The old handlers were mouse-only — mousedown/wheel — so on a phone
+// the map could not be dragged or pinched at all.)
+let dragNode=null, dragMap=null, downAt=null;
+const pointers = new Map(); let pinchD=0;
 function toWorld(mx,my){ return {x:(mx-W/2-cam.x)/cam.k, y:(my-58-H/2-cam.y)/cam.k}; }
 function pick(mx,my){ const p=toWorld(mx,my); let best=null,bd=26/cam.k;
   for(const n of nodes.values()){ const d=Math.hypot(n.x-p.x,n.y-p.y); if(d<bd){bd=d;best=n;} } return best; }
-cv.addEventListener('mousedown', e=>{
-  const n = pick(e.clientX, e.clientY);
-  if(n){ dragNode=n; } else { dragMap={x:e.clientX,y:e.clientY,cx:cam.x,cy:cam.y}; }
+
+function valueDetail(id){
+  const n = nodes.get(id); if(!n) return null;
+  const facts = edges.filter(e=>e.target===id && e.kind==='fact')
+    .map(e=>({subject:(nodes.get(e.source)||{}).label||e.source,
+              predicate:e.label, source_agent:e.by, valid_from:e.at}));
+  return {kind:'value', title:n.label, facts};
+}
+
+async function selectNode(id){
+  selected = id;
+  if(details[id]){ showStory(id); return; }
+  const n = nodes.get(id);
+  if(n && n.kind==='value'){
+    const d = valueDetail(id);
+    if(d){ details[id]=d; showStory(id); }
+    return;
+  }
+  try{
+    const r = await fetch('/graph/node/' + encodeURIComponent(id));
+    if(!r.ok) return;
+    details[id] = await r.json();
+    if(selected===id) showStory(id);
+  }catch(e){ /* offline moment; a later click retries */ }
+}
+
+cv.addEventListener('pointerdown', e=>{
+  try{ cv.setPointerCapture(e.pointerId); }catch(err){}
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  downAt = {x:e.clientX, y:e.clientY, t:performance.now(), moved:false};
+  if(pointers.size===2){
+    const ps=[...pointers.values()];
+    pinchD = Math.hypot(ps[0].x-ps[1].x, ps[0].y-ps[1].y);
+    dragNode=null; dragMap=null;
+  } else if(pointers.size===1){
+    const n = pick(e.clientX, e.clientY);
+    if(n){ dragNode=n; } else { dragMap={x:e.clientX,y:e.clientY,cx:cam.x,cy:cam.y}; }
+  }
 });
-window.addEventListener('mousemove', e=>{
+cv.addEventListener('pointermove', e=>{
+  if(!pointers.has(e.pointerId)){
+    if(e.pointerType==='mouse'){
+      const n=pick(e.clientX,e.clientY); hover = n?n.id:null;
+      cv.style.cursor = n?'pointer':'grab';
+    }
+    return;
+  }
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(downAt && Math.hypot(e.clientX-downAt.x, e.clientY-downAt.y) > 6) downAt.moved = true;
+  if(pointers.size===2){
+    const ps=[...pointers.values()];
+    const d = Math.hypot(ps[0].x-ps[1].x, ps[0].y-ps[1].y);
+    if(pinchD) cam.k = Math.max(.25, Math.min(2.6, cam.k * (d/pinchD)));
+    pinchD = d; return;
+  }
   if(dragNode){ const p=toWorld(e.clientX,e.clientY); dragNode.x=p.x; dragNode.y=p.y; dragNode.vx=dragNode.vy=0; }
   else if(dragMap){ cam.x = dragMap.cx + (e.clientX-dragMap.x); cam.y = dragMap.cy + (e.clientY-dragMap.y); }
-  else { const n=pick(e.clientX,e.clientY); hover = n?n.id:null; cv.style.cursor = n?'pointer':'grab'; }
 });
-window.addEventListener('mouseup', e=>{
-  if(dragNode && Math.hypot(e.movementX,e.movementY) < 3){ /* click handled below */ }
-  dragNode=null; dragMap=null;
-});
-cv.addEventListener('click', e=>{
-  const n = pick(e.clientX, e.clientY);
-  if(n){ selected=n.id; showStory(n.id); }
-  else { selected=null; document.getElementById('panel').classList.add('hidden'); }
-});
+function endPointer(e){
+  const wasTap = pointers.size===1 && downAt && !downAt.moved &&
+                 (performance.now()-downAt.t) < 500;
+  pointers.delete(e.pointerId);
+  if(pointers.size<2) pinchD=0;
+  if(pointers.size===0){
+    if(wasTap){
+      const n = pick(e.clientX, e.clientY);
+      if(n){ selectNode(n.id); }
+      else { selected=null; document.getElementById('panel').classList.add('hidden'); }
+    }
+    dragNode=null; dragMap=null; downAt=null;
+  }
+}
+cv.addEventListener('pointerup', endPointer);
+cv.addEventListener('pointercancel', endPointer);
 cv.addEventListener('wheel', e=>{
   e.preventDefault();
   cam.k = Math.max(.25, Math.min(2.6, cam.k * (e.deltaY<0?1.1:0.91)));

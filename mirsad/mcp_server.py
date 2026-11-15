@@ -142,8 +142,27 @@ async def logo_svg(request: Request) -> Response:
 
 @mcp.custom_route("/graph", methods=["GET"])
 async def graph_json(request: Request) -> JSONResponse:
-    """The whole memory as nodes + edges, for the viewer (polled live)."""
-    return JSONResponse(m.graph_snapshot())
+    """The memory as nodes + edges, for the viewer (polled live).
+    Light payload: per-node details are NOT included — the viewer
+    fetches them per click from /graph/node/{id}. A poll that passes
+    ?v=<last seen version> gets a tiny {"unchanged": true} reply when
+    nothing was written since, instead of the full snapshot."""
+    v = request.query_params.get("v")
+    current = m.graph_version()
+    if v is not None and v.isdigit() and int(v) == current:
+        return JSONResponse({"version": current, "unchanged": True})
+    return JSONResponse(m.graph_snapshot(light=True))
+
+
+@mcp.custom_route("/graph/node/{node_id}", methods=["GET"])
+async def graph_node_json(request: Request) -> JSONResponse:
+    """One node's story (entity facts / full decision chain), fetched
+    when a viewer clicks it. Value nodes are derived client-side from
+    the snapshot's edges and return 404 here by design."""
+    detail = m.graph_node_detail(request.path_params["node_id"])
+    if detail is None:
+        return JSONResponse({"error": "unknown node"}, status_code=404)
+    return JSONResponse(detail)
 
 
 if __name__ == "__main__":
