@@ -26,7 +26,13 @@ from .viewer import VIEWER_HTML
 
 DB_PATH = os.environ.get("MIRSAD_DB", os.path.expanduser("~/mirsad.db"))
 m = Mirsad(DB_PATH)
-mcp = FastMCP("mirsad", host="0.0.0.0", port=int(os.environ.get("MIRSAD_PORT", "8765")))
+# Bind loopback by default: these tools read and write the user's whole
+# memory with no authentication layer, so listening on every interface
+# would hand the memory to anyone on the LAN who finds the port. The
+# hosted edition is the one built for remote access (behind its token).
+# Set MIRSAD_HOST=0.0.0.0 only behind your own auth/reverse proxy.
+mcp = FastMCP("mirsad", host=os.environ.get("MIRSAD_HOST", "127.0.0.1"),
+              port=int(os.environ.get("MIRSAD_PORT", "8765")))
 
 
 @mcp.tool()

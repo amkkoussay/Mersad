@@ -166,6 +166,22 @@ def test_graph_light_and_detail():
     print("PASS graph snapshot light mode + on-demand node detail")
 
 
+def test_server_binds_loopback_by_default():
+    """The MCP server must not listen on all interfaces by default:
+    its tools read/write the whole memory with no auth layer."""
+    import subprocess
+    env = dict(os.environ, MIRSAD_DB=tmpdb())
+    env.pop("MIRSAD_HOST", None)
+    out = subprocess.run(
+        [sys.executable, "-c",
+         "import mirsad.mcp_server as s; print(s.mcp.settings.host)"],
+        capture_output=True, text=True, env=env, timeout=60,
+        cwd=os.path.dirname(os.path.abspath(__file__)))
+    assert out.returncode == 0, out.stderr[-400:]
+    assert out.stdout.strip() == "127.0.0.1", out.stdout
+    print("PASS MCP server binds loopback by default")
+
+
 if __name__ == "__main__":
     test_threaded_access()
     test_duplicate_fact_idempotent()
@@ -173,4 +189,5 @@ if __name__ == "__main__":
     test_name_resolution_indexed()
     test_migration_from_v1()
     test_graph_light_and_detail()
+    test_server_binds_loopback_by_default()
     print("\nALL HARDENING TESTS PASS")
