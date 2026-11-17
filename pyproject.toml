@@ -31,3 +31,7 @@ mirsad-mcp = "mirsad.mcp_server:main"
 
 [tool.setuptools]
 packages = ["mirsad"]
+
+[tool.ruff.lint]
+# The project's adopted ruleset: ruff's default selection, run in CI.
+select = ["E4", "E7", "E9", "F"]

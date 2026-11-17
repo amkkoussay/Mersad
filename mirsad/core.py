@@ -21,7 +21,6 @@ What none of them do, and MIRSAD does:
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import threading
 import time
@@ -1083,7 +1082,8 @@ class Mirsad:
         return "\n".join(lines) + "\n"
 
     def stats(self) -> dict:
-        q = lambda sql: self.db.execute(sql).fetchone()[0]
+        def q(sql):
+            return self.db.execute(sql).fetchone()[0]
         return {
             "entities": q("SELECT COUNT(*) FROM entities"),
             "facts_total": q("SELECT COUNT(*) FROM facts"),
