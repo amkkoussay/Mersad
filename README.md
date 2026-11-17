@@ -88,7 +88,7 @@ assistant of choice, and it shares this memory with every other client.
 
 ## لماذا وُجد؟ (ما وجدناه في مراجعة الأنظمة الكبرى)
 
-راجعنا Graphiti وCognee وMem0 وLetta وgraph-agent-memory وMemori. الخلاصة: لا واحد منها يخزّن **«القرار وسببه ودليله ونتيجته» كوحدة أولى جاهزة**، وأغلبها يحتاج LLM مدفوعًا وقاعدة رسوم منفصلة لمجرّد الكتابة، وMem0 الحالي لا يحسم التناقضات أصلًا، وLetta يترك الذاكرة لقرار النموذج. مِرصاد يأخذ أفضل أفكارهم ويصلح أضعف نقاطهم:
+راجعنا Graphiti وCognee وMem0 وLetta وgraph-agent-memory وMemori. الخلاصة: لا واحد منها يخزّن **«القرار وسببه ودليله ونتيجته» كوحدة أولى جاهزة**، وأغلبها يحتاج LLM مدفوعًا وقاعدة رسوم منفصلة لمجرّد الكتابة، وفي Mem0 يحسم نموذجٌ لغوي التناقضات تلقائيًا بلا انتظار حكمك، وLetta يترك الذاكرة لقرار النموذج. مِرصاد يأخذ أفضل أفكارهم ويصلح أضعف نقاطهم:
 
 | الفكرة | من أين | كيف في مِرصاد |
 |---|---|---|
@@ -100,6 +100,26 @@ assistant of choice, and it shares this memory with every other client.
 
 والفرق العملي الأكبر: **ملف SQLite واحد، صفر خدمات خارجية، صفر مفاتيح API** — يعمل على أيّ جهاز، حتى هاتفك عبر Termux.
 
+## How MIRSAD compares
+
+MIRSAD's niche is not raw recall quality — it is auditability: who wrote a
+fact, when it was true, why a decision was taken, and who settled a
+disagreement. An honest side-by-side with the systems it is most often
+compared to:
+
+|  | MIRSAD | Mem0 | Graphiti (Zep's open engine) | Official MCP memory server |
+|---|---|---|---|---|
+| Storage | One SQLite file, local-first | Vector store, optional graph add-on | Neo4j or FalkorDB graph database | A local JSON file |
+| How memory is written | Agents write facts and decisions explicitly through MCP tools — no LLM in the write path | An LLM extracts facts from conversations, then decides ADD / UPDATE / DELETE / NOOP | An LLM extracts entities and edges from raw episodes | Agents write entities, relations and observations through tools |
+| Facts over time | Bi-temporal (validity + recording windows); superseded facts are invalidated, never deleted | Memories are updated or deleted as the LLM decides; each memory keeps a change history | Bi-temporal; contradicted edges are invalidated, never deleted | Values are overwritten in place |
+| When two sources disagree | The conflict is queued for the **owner** to resolve — a machine's version never silently wins | The LLM resolves it automatically at write time | The newer fact wins automatically (LLM-checked) | No conflict concept |
+| Decisions | First-class units: reason, evidence, rejected alternatives, effects, outcomes, supersede chains | Not a built-in unit | Not a built-in unit (can be modelled as nodes) | Not a built-in unit |
+| Recall | Keyword full-text search + structural queries — no embeddings | Embedding similarity (+ graph queries) | Hybrid: embeddings, keyword and graph search | Graph traversal over entities |
+
+Letta (formerly MemGPT) takes a different shape: it is an agent framework
+whose agents edit their own memory blocks, rather than a shared store that
+several independent agents write to.
+
 ## نموذج البيانات
 
 - **كيانات (Entities):** أشخاص، مشاريع، ملفات، مفاهيم.
@@ -107,6 +127,19 @@ assistant of choice, and it shares this memory with every other client.
 - **قرارات (Decisions):** الوحدة الكاملة أعلاه، بحالات proposed/accepted/rejected/superseded.
 - **حلقات (Episodes):** النصّ الخام المصدر لكل سجلّ — لا يُحذف أبدًا (الأصل/Provenance).
 - **تعارضات (Conflicts):** خلافات بين الوكلاء تنتظر حكمك، وحكمك نفسه يُحفظ.
+
+المسار بصريًا — كل المكوّنات أعلاه جداول في ملف SQLite واحد:
+
+```mermaid
+flowchart LR
+    A["AI agents<br/>Claude · ChatGPT · any MCP client"] -->|"remember_fact · record_decision"| S["MIRSAD MCP server<br/>12 tools"]
+    S --> F[("Bi-temporal facts<br/>invalidated, never deleted")]
+    S --> D[("Decision units<br/>reason · evidence · rejected alternatives · outcome")]
+    S --> E[("Episodes<br/>raw provenance")]
+    S -->|"another agent overwrites a fact"| Q["Conflict queue"]
+    Q -->|"owner resolves"| S
+    A -->|"recall · why · timeline"| S
+```
 
 ## التشغيل
 

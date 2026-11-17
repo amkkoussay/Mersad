@@ -1,0 +1,44 @@
+# MIRSAD
+
+> Shared memory server for AI agents, built on the Model Context Protocol (MCP). One collective memory that several assistants read and write together: bi-temporal facts, first-class decision records (reason, evidence, rejected alternatives, outcome), and a conflict queue that only the owner resolves — all in a single local SQLite file, with no LLM in the write path.
+
+Naming: the product is MIRSAD, the GitHub repository is Mersad, and the PyPI package and command are mirsad-mcp. Current version: see PyPI or the `version_info` tool.
+
+Instead of every assistant keeping its own private, forgetful memory, MIRSAD gives all of them one shared memory: Claude, ChatGPT, or any MCP client. Facts carry both validity time and recording time; an update invalidates the old value instead of deleting it, so "what was true then?" stays answerable. When one agent overwrites a fact written by another agent, the new value wins for queries but a conflict is opened for the owner's ruling — a machine's version never silently wins. Recall is hybrid: keyword full-text search plus structural graph queries. There are no embeddings and no semantic/vector recall.
+
+## Install
+
+- PyPI: `pip install mirsad-mcp`, then run the `mirsad-mcp` command (stdio by default; set `MIRSAD_TRANSPORT=streamable-http` for HTTP on 127.0.0.1:8765)
+- From source: `git clone https://github.com/amkkoussay/Mersad.git`, install `requirements.txt`, run `python -m mirsad.mcp_server`
+- Full instructions: [llms-install.md](https://github.com/amkkoussay/Mersad/blob/main/llms-install.md) and [SETUP-AR.md](https://github.com/amkkoussay/Mersad/blob/main/SETUP-AR.md) (Arabic)
+
+## The 12 MCP tools
+
+- `remember_fact` — store a fact (subject, predicate, value); a different value invalidates the previous one and may open a conflict
+- `current_fact` — the currently valid value of a fact
+- `timeline` — the full history of a fact, including invalidated values
+- `record_decision` — record a decision with its reasons, evidence, rejected alternatives and affected entities/files
+- `record_outcome` — attach an observed outcome to a recorded decision
+- `add_alias` — register an alias for an entity (for example an Arabic and an English name)
+- `why` — explain a decision: reasons, evidence, alternatives rejected, outcomes
+- `recall` — hybrid recall over facts and decisions (keyword full-text search + structural queries)
+- `open_conflicts` — list cross-agent conflicts waiting for the owner
+- `resolve_conflict` — record the owner's resolution of a conflict
+- `memory_stats` — counts of entities, facts, decisions and conflicts
+- `version_info` — the running server and package version
+
+## Data model
+
+- Entities: people, projects, files, concepts, with aliases
+- Facts: (entity, predicate, value) with four timestamps — valid from, valid to, recorded at, invalidated at
+- Decisions: first-class units with status (proposed / accepted / rejected / superseded) and supersede chains
+- Episodes: the raw source text behind records; kept as provenance, never deleted
+- Conflicts: disagreements between agents, resolved only by the owner
+
+## Links
+
+- GitHub: https://github.com/amkkoussay/Mersad
+- PyPI: https://pypi.org/project/mirsad-mcp/
+- Official MCP Registry: `io.github.amkkoussay/mersad`
+- Security policy: https://github.com/amkkoussay/Mersad/blob/main/SECURITY.md
+- Contributing: https://github.com/amkkoussay/Mersad/blob/main/CONTRIBUTING.md
