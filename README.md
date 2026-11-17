@@ -10,6 +10,7 @@
 [![Downloads](https://img.shields.io/pypi/dm/mirsad-mcp.svg)](https://pypi.org/project/mirsad-mcp/)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.amkkoussay%2Fmersad-DBE7F5.svg)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.amkkoussay/mersad)
 [![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/amkkoussay/mersad)
+[![M8ven Score](https://m8ven.ai/badge/mcp/amkkoussay/mersad)](https://m8ven.ai/mcp/amkkoussay/mersad?s=readme)
 [![Release downloads](https://img.shields.io/github/downloads/amkkoussay/Mersad/total?label=release%20downloads)](https://github.com/amkkoussay/Mersad/releases)
 
 <p align="center">
