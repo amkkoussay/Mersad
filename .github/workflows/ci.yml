@@ -17,4 +17,45 @@ jobs:
       - run: .venv/bin/python test_mcp.py
         env:
           NO_PROXY: 127.0.0.1,localhost
-          
+      - run: .venv/bin/python test_hardening.py
+      - run: .venv/bin/python test_recall_like.py
+      - run: .venv/bin/python test_recall_echo.py
+      - run: .venv/bin/python test_annotations.py
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the package exactly as a user would
+        run: |
+          python -m venv /tmp/pkg-venv
+          /tmp/pkg-venv/bin/pip install .
+      - name: The installed mirsad-mcp command must answer an MCP handshake
+        run: |
+          cat > /tmp/smoke.py <<'EOF'
+          import asyncio
+
+          from mcp import ClientSession, StdioServerParameters
+          from mcp.client.stdio import stdio_client
+
+
+          async def main():
+              params = StdioServerParameters(
+                  command="/tmp/pkg-venv/bin/mirsad-mcp",
+                  env={"MIRSAD_DB": "/tmp/smoke.db",
+                       "PATH": "/usr/bin:/bin:/usr/local/bin"})
+              async with stdio_client(params) as (read, write):
+                  async with ClientSession(read, write) as session:
+                      await session.initialize()
+                      tools = await session.list_tools()
+                      names = [t.name for t in tools.tools]
+                      assert len(names) == 12, names
+                      print("packaged command OK:", len(names), "tools")
+
+
+          asyncio.run(main())
+          EOF
+          /tmp/pkg-venv/bin/python /tmp/smoke.py
