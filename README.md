@@ -11,6 +11,10 @@
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.amkkoussay%2Fmersad-DBE7F5.svg)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.amkkoussay/mersad)
 [![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/amkkoussay/mersad)
 [![Release downloads](https://img.shields.io/github/downloads/amkkoussay/Mersad/total?label=release%20downloads)](https://github.com/amkkoussay/Mersad/releases)
+[![M8ven Score](https://m8ven.ai/badge/mcp/amkkoussay-mersad-qvj17r?v=6ae4cc333e2e157573e90df7c29c6c68)](https://m8ven.ai/mcp/amkkoussay-mersad-qvj17r?s=readme)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16853/badge)](https://www.bestpractices.dev/projects/16853)
+
+<sub>The OpenSSF badge is a best-practices self-attestation by the project, not a security certification or an independent audit.</sub>
 
 <p align="center">
   <img src="assets/demo.gif" alt="MIRSAD demo — an MCP client storing facts, recording a decision with its reasons, and resolving a cross-agent conflict (fictional demo data)" width="880" />
