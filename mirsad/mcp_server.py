@@ -189,6 +189,16 @@ async def graph_node_json(request: Request) -> JSONResponse:
     return JSONResponse(detail)
 
 
+def main(transport: str | None = None) -> None:
+    """Console entry point — the `mirsad-mcp` command installed from PyPI
+    (pyproject [project.scripts] points here).
+
+    Defaults to stdio: that is how MCP clients spawn an installed
+    server. Set MIRSAD_TRANSPORT=streamable-http to serve HTTP."""
+    mcp.run(transport=transport
+            or os.environ.get("MIRSAD_TRANSPORT", "stdio"))
+
+
 if __name__ == "__main__":
-    transport = os.environ.get("MIRSAD_TRANSPORT", "streamable-http")
-    mcp.run(transport=transport)
+    # Direct module runs keep the HTTP default the connectors use.
+    main(os.environ.get("MIRSAD_TRANSPORT", "streamable-http"))

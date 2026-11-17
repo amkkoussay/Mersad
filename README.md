@@ -10,7 +10,6 @@
 [![Downloads](https://img.shields.io/pypi/dm/mirsad-mcp.svg)](https://pypi.org/project/mirsad-mcp/)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.amkkoussay%2Fmersad-DBE7F5.svg)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.amkkoussay/mersad)
 [![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/amkkoussay/mersad)
-[![M8ven Score](https://m8ven.ai/badge/mcp/amkkoussay-mersad-qvj17r?v=6ae4cc333e2e157573e90df7c29c6c68)](https://m8ven.ai/mcp/amkkoussay-mersad-qvj17r?s=readme)
 [![Release downloads](https://img.shields.io/github/downloads/amkkoussay/Mersad/total?label=release%20downloads)](https://github.com/amkkoussay/Mersad/releases)
 
 <p align="center">
@@ -29,6 +28,10 @@
 >
 > _Keywords: MCP server, AI agent memory, shared memory, temporal knowledge
 > graph, decision log, Claude, ChatGPT, SQLite, local-first._
+
+_One project, three labels: the product is **MIRSAD** (مِرصاد); the GitHub
+repository is `Mersad`; the PyPI package and its command are `mirsad-mcp`
+(Python import: `mirsad`). All three names refer to this same project._
 
 **ذاكرة جماعية واحدة لكل مساعداتك.** خادم ذاكرة مبني على رسم معرفي زمني (Temporal Knowledge Graph) يقرأ منه ويكتب فيه كل مساعداتك وأنت نفسك — عبر بروتوكول MCP نفسه — فلا يضيع قرار اتُّخذ مع مساعدٍ عن بقيّة المساعدين، ولا تُنسى أسبابه وأدلّته ونتائجه.
 
@@ -63,7 +66,8 @@ they can read and write: Claude, ChatGPT, or any MCP client.
 mcp-name: io.github.amkkoussay/mersad
 
 Install from PyPI: `pip install mirsad-mcp` — then point your MCP client
-at the `mirsad-mcp` command (stdio, with `MIRSAD_TRANSPORT=stdio`).
+at the `mirsad-mcp` command (stdio by default; set
+`MIRSAD_TRANSPORT=streamable-http` to serve HTTP instead).
 
 ### Quickstart
 
@@ -103,7 +107,7 @@ assistant of choice, and it shares this memory with every other client.
 ## التشغيل
 
 ```bash
-cd shared-memory-hub
+cd Mersad
 python3 -m venv .venv && .venv/bin/pip install "mcp[cli]<2"
 
 # خادم MCP عبر HTTP (للموصّلات) — المنفذ 8765 افتراضيًا
@@ -115,7 +119,7 @@ MIRSAD_DB=~/mirsad.db .venv/bin/python -m mirsad.mcp_server
 .venv/bin/python -m mirsad.cli --db ~/mirsad.db export
 ```
 
-الأدوات الإحدى عشرة عبر MCP: `remember_fact`، `current_fact`، `timeline`، `record_decision`، `record_outcome`، `add_alias`، `why`، `recall`، `open_conflicts`، `resolve_conflict`، `memory_stats`.
+الأدوات الاثنتا عشرة عبر MCP: `remember_fact`، `current_fact`، `timeline`، `record_decision`، `record_outcome`، `add_alias`، `why`، `recall`، `open_conflicts`، `resolve_conflict`، `memory_stats`، `version_info`.
 
 ## خريطة الذاكرة الحية (النسخة المحلية)
 
