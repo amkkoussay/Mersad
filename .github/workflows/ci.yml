@@ -14,8 +14,8 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/pip install "mcp[cli]<2"
-    - name: Lint (ruff, default ruleset)
-      run: |
+      - name: Lint (ruff, default ruleset)
+        run: |
           .venv/bin/pip install ruff
           .venv/bin/ruff check mirsad/ demo.py test_graph.py test_mcp.py test_hardening.py test_recall_like.py test_recall_echo.py test_annotations.py
       - run: .venv/bin/python demo.py
