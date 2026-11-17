@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from pathlib import Path
 
@@ -34,8 +35,25 @@ m = Mirsad(DB_PATH)
 mcp = FastMCP("mirsad", host=os.environ.get("MIRSAD_HOST", "127.0.0.1"),
               port=int(os.environ.get("MIRSAD_PORT", "8765")))
 
+# Tool annotations, declared honestly per handler behaviour so hosts can
+# warn users accurately (and directories that require them accept the
+# server). Nothing here talks to the outside world: openWorldHint is
+# False everywhere. "Destructive" means the call can end the standing
+# state of an existing record — remember_fact closes the fact it
+# replaces (history is kept, currency is not), resolve_conflict closes
+# an open conflict.
+_READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False,
+                             idempotentHint=True, openWorldHint=False)
+_WRITE_NEW = ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                             idempotentHint=False, openWorldHint=False)
+_WRITE_REPLACE = ToolAnnotations(readOnlyHint=False, destructiveHint=True,
+                                 idempotentHint=False, openWorldHint=False)
+_WRITE_IDEMPOTENT = ToolAnnotations(readOnlyHint=False,
+                                    destructiveHint=False,
+                                    idempotentHint=True, openWorldHint=False)
 
-@mcp.tool()
+
+@mcp.tool(annotations=_WRITE_REPLACE)
 def remember_fact(subject: str, predicate: str, value: str, agent: str,
                   source_ref: str = "") -> dict:
     """Store a fact about a subject. If another value is currently recorded
@@ -46,20 +64,20 @@ def remember_fact(subject: str, predicate: str, value: str, agent: str,
                            source_ref=source_ref or None)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def current_fact(subject: str, predicate: str) -> dict | None:
     """The currently valid value for subject+predicate, with provenance."""
     return m.current_fact(subject, predicate)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def timeline(subject: str) -> dict:
     """Every value ever recorded for a subject, with validity windows —
     including superseded ones. Use it to answer 'what changed and when?'"""
     return {"facts": m.timeline(subject)}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE_NEW)
 def record_decision(title: str, agent: str, description: str = "",
                     reasons: list[str] | None = None,
                     evidence: list[dict] | None = None,
@@ -76,7 +94,7 @@ def record_decision(title: str, agent: str, description: str = "",
     return {"decision_id": did}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE_IDEMPOTENT)
 def add_alias(entity: str, alias: str) -> dict:
     """Register another name for an entity (another language, spelling or
     script) so future lookups in that name resolve to the same entity."""
@@ -84,14 +102,14 @@ def add_alias(entity: str, alias: str) -> dict:
     return {"ok": True, "entity": entity, "alias": alias}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE_NEW)
 def record_outcome(decision_id: int, outcome: str, agent: str) -> dict:
     """Attach a later outcome/result to an existing decision."""
     m.record_outcome(decision_id, outcome, recorded_by=agent)
     return {"ok": True}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def why(topic: str) -> dict:
     """Answer 'why did we choose X?' — full decision chains matching the
     topic: reasons, evidence, rejected alternatives, outcomes, and what
@@ -99,32 +117,32 @@ def why(topic: str) -> dict:
     return {"decisions": m.why(topic)}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def recall(query: str) -> dict:
     """Hybrid recall across facts, decisions and raw episodes."""
     return m.recall(query)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def open_conflicts() -> dict:
     """Disagreements between agents that are waiting for the user's ruling."""
     return {"conflicts": m.open_conflicts()}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE_REPLACE)
 def resolve_conflict(conflict_id: int, resolution: str) -> dict:
     """Close a conflict with the user's ruling, kept on record."""
     m.resolve_conflict(conflict_id, resolution)
     return {"ok": True}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def memory_stats() -> dict:
     """Counts: entities, facts (total/current), decisions, open conflicts."""
     return m.stats()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def version_info() -> dict:
     """Identity of this running build: package version, source commit,
     deployment timestamp, schema version and runtime — so a client can
