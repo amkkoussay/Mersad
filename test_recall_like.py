@@ -123,7 +123,7 @@ for n in (49, 50, 200):
 # 10. version_info reports the running build's identity.
 vi = m.version_info()
 check("version_info returns build identity",
-      bool(vi.get("package_version")) and vi.get("schema_version") == 2
+      bool(vi.get("package_version")) and vi.get("schema_version") == 3
       and vi.get("runtime") == "local", str(vi))
 
 print()

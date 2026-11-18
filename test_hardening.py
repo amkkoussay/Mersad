@@ -129,8 +129,8 @@ def test_migration_from_v1():
     raw.close()
 
     m = Mirsad(path)  # opening must migrate, not crash
-    assert SCHEMA_VERSION == 2
-    assert m.version_info()["schema_version"] == 2
+    assert SCHEMA_VERSION == 3
+    assert m.version_info()["schema_version"] == 3
     assert m.current_fact("Legacy", "color")["object"] == "green"
     bodies = [r[0] for r in m.db.execute("SELECT body FROM search_index")]
     assert bodies == ["green"], f"legacy index not rebuilt: {bodies}"

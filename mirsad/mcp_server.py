@@ -56,10 +56,12 @@ _WRITE_IDEMPOTENT = ToolAnnotations(readOnlyHint=False,
 @mcp.tool(annotations=_WRITE_REPLACE)
 def remember_fact(subject: str, predicate: str, value: str, agent: str,
                   source_ref: str = "") -> dict:
-    """Store a fact about a subject. If another value is currently recorded
-    for the same subject+predicate, the old one is closed (not deleted) and,
-    when a different agent overwrites it, a conflict is opened for the user.
-    Always pass your own assistant name as `agent`."""
+    """Store a fact about a subject. If the same agent rewrites its own
+    value, the old one is closed (not deleted). If a DIFFERENT agent
+    challenges a standing value, the standing value stays current and
+    the new one waits as a pending candidate with a conflict opened for
+    the user — it does not take over. Always pass your own assistant
+    name as `agent`."""
     return m.remember_fact(subject, predicate, value, source_agent=agent,
                            source_ref=source_ref or None)
 
@@ -77,20 +79,33 @@ def timeline(subject: str) -> dict:
     return {"facts": m.timeline(subject)}
 
 
+@mcp.tool(annotations=_READ_ONLY)
+def subject_brief(subject: str) -> dict:
+    """Everything known about one subject in a single call: standing
+    facts, pending challenger values, open conflicts, the decisions
+    that involve it, and its full timeline. Use it to answer 'what do
+    we know about X?' instead of stitching single-predicate lookups."""
+    return m.subject_brief(subject)
+
+
 @mcp.tool(annotations=_WRITE_NEW)
 def record_decision(title: str, agent: str, description: str = "",
                     reasons: list[str] | None = None,
                     evidence: list[dict] | None = None,
                     alternatives_rejected: list[str] | None = None,
                     effects: list[str] | None = None,
-                    entities: list[str] | None = None) -> dict:
+                    entities: list[str] | None = None,
+                    supersedes: int | None = None) -> dict:
     """Record a decision as ONE unit: the decision, why it was taken,
     the evidence behind it, which alternatives were rejected, and what it
-    affects (files, functions, plans). Returns the decision id."""
+    affects (files, functions, plans). Pass `supersedes` with the id of
+    an earlier decision this one replaces; the chain stays on record.
+    Returns the decision id."""
     did = m.record_decision(title, made_by=agent, description=description,
                             reasons=reasons, evidence=evidence,
                             alternatives_rejected=alternatives_rejected,
-                            effects=effects, entities=entities)
+                            effects=effects, entities=entities,
+                            supersedes=supersedes)
     return {"decision_id": did}
 
 
@@ -130,10 +145,14 @@ def open_conflicts() -> dict:
 
 
 @mcp.tool(annotations=_WRITE_REPLACE)
-def resolve_conflict(conflict_id: int, resolution: str) -> dict:
-    """Close a conflict with the user's ruling, kept on record."""
-    m.resolve_conflict(conflict_id, resolution)
-    return {"ok": True}
+def resolve_conflict(conflict_id: int, resolution: str,
+                     winner: str = "standing") -> dict:
+    """Apply the user's ruling on a conflict — the ruling decides what
+    stays current, it is not just a note. winner="standing" keeps the
+    standing value and retires the challenger to history;
+    winner="challenger" promotes the challenger and closes the standing
+    value's window. Only pass a ruling the user actually made."""
+    return m.resolve_conflict(conflict_id, resolution, winner=winner)
 
 
 @mcp.tool(annotations=_READ_ONLY)

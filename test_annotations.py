@@ -12,13 +12,14 @@ from mirsad.mcp_server import mcp  # noqa: E402
 
 HINTS = ("readOnlyHint", "destructiveHint", "idempotentHint",
          "openWorldHint")
-READ_ONLY_TOOLS = {"current_fact", "timeline", "why", "recall",
-                   "open_conflicts", "memory_stats", "version_info"}
+READ_ONLY_TOOLS = {"current_fact", "timeline", "subject_brief", "why",
+                   "recall", "open_conflicts", "memory_stats",
+                   "version_info"}
 
 
 def test_all_tools_fully_annotated():
     tools = asyncio.run(mcp.list_tools())
-    assert len(tools) == 12, [t.name for t in tools]
+    assert len(tools) == 13, [t.name for t in tools]
     for t in tools:
         a = t.annotations
         assert a is not None, t.name
@@ -31,4 +32,4 @@ def test_all_tools_fully_annotated():
 
 if __name__ == "__main__":
     test_all_tools_fully_annotated()
-    print("annotations: 12/12 tools fully declared")
+    print("annotations: 13/13 tools fully declared")
