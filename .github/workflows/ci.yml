@@ -17,7 +17,7 @@ jobs:
       - name: Lint (ruff, default ruleset)
         run: |
           .venv/bin/pip install ruff
-          .venv/bin/ruff check mirsad/ demo.py test_graph.py test_mcp.py test_hardening.py test_recall_like.py test_recall_echo.py test_annotations.py
+          .venv/bin/ruff check mirsad/ demo.py test_graph.py test_mcp.py test_hardening.py test_recall_like.py test_recall_echo.py test_annotations.py test_core_fixes.py
       - run: .venv/bin/python demo.py
       - run: .venv/bin/python test_graph.py
       - run: .venv/bin/python test_mcp.py
@@ -27,6 +27,7 @@ jobs:
       - run: .venv/bin/python test_recall_like.py
       - run: .venv/bin/python test_recall_echo.py
       - run: .venv/bin/python test_annotations.py
+      - run: .venv/bin/python test_core_fixes.py
 
   package:
     runs-on: ubuntu-latest
@@ -58,7 +59,7 @@ jobs:
                       await session.initialize()
                       tools = await session.list_tools()
                       names = [t.name for t in tools.tools]
-                      assert len(names) == 12, names
+                      assert len(names) == 13, names
                       print("packaged command OK:", len(names), "tools")
 
 
