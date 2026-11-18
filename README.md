@@ -173,9 +173,11 @@ MIRSAD_DB=~/mirsad.db .venv/bin/python -m mirsad.mcp_server
 ## الاختبارات (قابلة للفشل فعليًا)
 
 ```bash
-.venv/bin/python demo.py       # 23 فحصًا على المحرّك: قرارات، زمن، تعارض بين وكيلين، أسماء بديلة، استبدال
+.venv/bin/python demo.py       # 24 فحصًا على المحرّك: قرارات، زمن، تعارض بين وكيلين، أسماء بديلة، استبدال
 .venv/bin/python test_mcp.py   # خادم حقيقي + عميل MCP رسمي: كتابة من وكيل وقراءة من آخر
 .venv/bin/python test_graph.py # 13 فحصًا على خريطة الذاكرة الحية: عقد وروابط وقصص وعدّاد تغييرات
+.venv/bin/python test_core_fixes.py # 36 فحصًا لمعاني 0.3.0: المتحدّي المنتظِر، فهرسة الحلقات، subject_brief، الكتابة الذرّية
+# وحزم أخرى: test_hardening.py (التصليب)، test_recall_like.py + test_recall_echo.py (حدود البحث)، test_annotations.py (تعليقات الأدوات)
 ```
 
 ## توصيل التطبيقات — الحقيقة كما تحققنا منها (نوفمبر 2026)
